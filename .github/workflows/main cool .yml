@@ -1,0 +1,114 @@
+name: Advanced Daily Activity Committer
+
+on:
+  schedule:
+    - cron: '0 12 * * *'  # Runs daily at 12:00 UTC
+  workflow_dispatch:
+    inputs:
+      commit_message:
+        description: 'Optional commit message. If empty, a default message will be used.'
+        required: false
+        default: ''
+      log_file_name:
+        description: 'Optional name for the daily log file (e.g., "update.md"). If empty, will use date.'
+        required: false
+        default: ''
+
+jobs:
+  commit_stuff:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required for pushing commits
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4 # Use a recent version
+      with:
+        fetch-depth: 1 # Only fetch the latest commit, faster
+
+    - name: Set up Git Identity
+      run: |
+        git config user.name "Awesome Bot"
+        git config user.email "awesome-bot@github.com" # Use a generic email for bot activity
+
+    - name: Generate Daily Content
+      id: content_generator
+      run: |
+        # --- Variables ---
+        CURRENT_DATE=$(date '+%Y-%m-%d')
+        CURRENT_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
+        
+        # Determine log file name
+        LOG_FILE_NAME="${{ inputs.log_file_name }}"
+        if [ -z "$LOG_FILE_NAME" ]; then
+          LOG_FILE_NAME="${CURRENT_DATE}.md" # Default to date-based markdown file
+        fi
+        
+        # Fetch a random quote
+        echo "Fetching a random quote..."
+        QUOTE_DATA=$(curl -s "https://api.quotable.io/random")
+        QUOTE=$(echo "$QUOTE_DATA" | jq -r '.content')
+        AUTHOR=$(echo "$QUOTE_DATA" | jq -r '.author')
+        
+        # --- Content Creation ---
+        echo "Creating content for $LOG_FILE_NAME..."
+        mkdir -p ./daily_updates # Create a directory for updates
+        
+        echo "# Daily Update - $CURRENT_DATE" > "./daily_updates/$LOG_FILE_NAME"
+        echo "" >> "./daily_updates/$LOG_FILE_NAME"
+        echo "Last updated: $CURRENT_TIMESTAMP" >> "./daily_updates/$LOG_FILE_NAME"
+        echo "" >> "./daily_updates/$LOG_FILE_NAME"
+        echo "---" >> "./daily_updates/$LOG_FILE_NAME"
+        echo "" >> "./daily_updates/$LOG_FILE_NAME"
+        echo "## Quote of the Day:" >> "./daily_updates/$LOG_FILE_NAME"
+        echo "" >> "./daily_updates/$LOG_FILE_NAME"
+        echo "> **\"$QUOTE\"**" >> "./daily_updates/$LOG_FILE_NAME"
+        echo "" >> "./daily_updates/$LOG_FILE_NAME"
+        echo "> — *$AUTHOR*" >> "./daily_updates/$LOG_FILE_NAME"
+        
+        # Output the name of the file created for later steps
+        echo "LOG_FILE_GENERATED=$LOG_FILE_NAME" >> $GITHUB_OUTPUT
+        echo "Generated content successfully."
+
+    - name: Prepare for Git Commit
+      run: |
+        echo "Adding generated content to staging area..."
+        git add ./daily_updates/ # Add all files in the daily_updates directory
+        
+        # Check if there are any changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit."
+          # Exit gracefully if no changes, preventing an empty commit
+          exit 0 
+        else
+          echo "Changes staged."
+        fi
+
+    - name: Commit and Push Changes
+      run: |
+        LOG_FILE="${{ steps.content_generator.outputs.LOG_FILE_GENERATED }}"
+        USER_COMMIT_MSG="${{ github.event.inputs.commit_message }}"
+        
+        # Determine commit message
+        if [[ -n "$USER_COMMIT_MSG" && "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          COMMIT_MSG="$USER_COMMIT_MSG"
+        else
+          COMMIT_MSG="Daily Update ($LOG_FILE) - $(date '+%Y-%m-%d')"
+        fi
+        
+        echo "Committing with message: '$COMMIT_MSG'"
+        git commit -m "$COMMIT_MSG"
+        
+        echo "Pushing changes to origin..."
+        git push origin HEAD # Push the current HEAD
+        echo "Changes pushed successfully."
+
+    - name: Final Status Report
+      if: always() # This step will run regardless of previous step success or failure
+      run: |
+        if [[ "${{ github.job_status }}" == "success" ]]; then
+          echo "✅ Workflow completed successfully!"
+        else
+          echo "❌ Workflow failed at some point."
+          # You could add more detailed error reporting here if needed
+        fi
