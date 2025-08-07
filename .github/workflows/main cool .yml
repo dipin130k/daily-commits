@@ -1,114 +1,177 @@
-name: Advanced Daily Activity Committer
+name: GitHub Profile Enhancer
 
 on:
   schedule:
-    - cron: '0 12 * * *'  # Runs daily at 12:00 UTC
+    - cron: '0 12 * * *'  # Daily at noon UTC
+    - cron: '0 0 * * 1'   # Extra run on Mondays at midnight UTC
   workflow_dispatch:
     inputs:
-      commit_message:
-        description: 'Optional commit message. If empty, a default message will be used.'
-        required: false
-        default: ''
-      log_file_name:
-        description: 'Optional name for the daily log file (e.g., "update.md"). If empty, will use date.'
-        required: false
-        default: ''
+      commit_type:
+        description: 'Content type'
+        required: true
+        default: 'random'
+        type: choice
+        options:
+          - random
+          - code
+          - quote
+          - stats
 
 jobs:
-  commit_stuff:
+  enhance-profile:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Required for pushing commits
-
+      contents: write
+    
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4 # Use a recent version
+    - name: Checkout repository
+      uses: actions/checkout@v3
       with:
-        fetch-depth: 1 # Only fetch the latest commit, faster
-
-    - name: Set up Git Identity
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
       run: |
-        git config user.name "Awesome Bot"
-        git config user.email "awesome-bot@github.com" # Use a generic email for bot activity
+        python -m pip install --upgrade pip
+        pip install requests matplotlib numpy pandas
 
-    - name: Generate Daily Content
-      id: content_generator
+    - name: Set up Git identity
       run: |
-        # --- Variables ---
-        CURRENT_DATE=$(date '+%Y-%m-%d')
-        CURRENT_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
-        
-        # Determine log file name
-        LOG_FILE_NAME="${{ inputs.log_file_name }}"
-        if [ -z "$LOG_FILE_NAME" ]; then
-          LOG_FILE_NAME="${CURRENT_DATE}.md" # Default to date-based markdown file
-        fi
-        
-        # Fetch a random quote
-        echo "Fetching a random quote..."
-        QUOTE_DATA=$(curl -s "https://api.quotable.io/random")
-        QUOTE=$(echo "$QUOTE_DATA" | jq -r '.content')
-        AUTHOR=$(echo "$QUOTE_DATA" | jq -r '.author')
-        
-        # --- Content Creation ---
-        echo "Creating content for $LOG_FILE_NAME..."
-        mkdir -p ./daily_updates # Create a directory for updates
-        
-        echo "# Daily Update - $CURRENT_DATE" > "./daily_updates/$LOG_FILE_NAME"
-        echo "" >> "./daily_updates/$LOG_FILE_NAME"
-        echo "Last updated: $CURRENT_TIMESTAMP" >> "./daily_updates/$LOG_FILE_NAME"
-        echo "" >> "./daily_updates/$LOG_FILE_NAME"
-        echo "---" >> "./daily_updates/$LOG_FILE_NAME"
-        echo "" >> "./daily_updates/$LOG_FILE_NAME"
-        echo "## Quote of the Day:" >> "./daily_updates/$LOG_FILE_NAME"
-        echo "" >> "./daily_updates/$LOG_FILE_NAME"
-        echo "> **\"$QUOTE\"**" >> "./daily_updates/$LOG_FILE_NAME"
-        echo "" >> "./daily_updates/$LOG_FILE_NAME"
-        echo "> — *$AUTHOR*" >> "./daily_updates/$LOG_FILE_NAME"
-        
-        # Output the name of the file created for later steps
-        echo "LOG_FILE_GENERATED=$LOG_FILE_NAME" >> $GITHUB_OUTPUT
-        echo "Generated content successfully."
-
-    - name: Prepare for Git Commit
+        git config user.name "${{ github.actor }}"
+        git config user.email "${{ github.actor }}@users.noreply.github.com"
+    
+    - name: Create content directory
+      run: mkdir -p content
+    
+    - name: Generate daily content
       run: |
-        echo "Adding generated content to staging area..."
-        git add ./daily_updates/ # Add all files in the daily_updates directory
-        
-        # Check if there are any changes to commit
-        if git diff --staged --quiet; then
-          echo "No changes to commit."
-          # Exit gracefully if no changes, preventing an empty commit
-          exit 0 
+        # Determine content type
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.commit_type }}" != "random" ]]; then
+          TYPE="${{ github.event.inputs.commit_type }}"
         else
-          echo "Changes staged."
+          # Choose random content type
+          TYPES=("code" "quote" "stats")
+          RANDOM_INDEX=$(( RANDOM % 3 ))
+          TYPE="${TYPES[$RANDOM_INDEX]}"
         fi
-
-    - name: Commit and Push Changes
+        
+        DATE=$(date +'%Y-%m-%d')
+        echo "Creating $TYPE content for $DATE"
+        
+        # Create a markdown file based on the selected type
+        if [[ "$TYPE" == "code" ]]; then
+          cat > content/daily_code_$DATE.md << EOF
+        # Daily Code Sample - $DATE
+        
+        ## Python Data Visualization Example
+        
+        \`\`\`python
+        import matplotlib.pyplot as plt
+        import numpy as np
+        
+        # Generate sample data
+        x = np.linspace(0, 10, 100)
+        y1 = np.sin(x)
+        y2 = np.cos(x)
+        y3 = np.sin(x) * np.cos(x)
+        
+        # Create visualization
+        plt.figure(figsize=(10, 6))
+        plt.plot(x, y1, label='sin(x)', color='blue')
+        plt.plot(x, y2, label='cos(x)', color='red')
+        plt.plot(x, y3, label='sin(x)*cos(x)', color='green')
+        plt.title('Trigonometric Functions')
+        plt.xlabel('x')
+        plt.ylabel('y')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig('trig_functions.png')
+        \`\`\`
+        
+        ## JavaScript Component
+        
+        \`\`\`javascript
+        class ThemeToggle {
+          constructor() {
+            this.theme = localStorage.getItem('theme') || 'light';
+            this.initTheme();
+            this.setupListeners();
+          }
+          
+          initTheme() {
+            document.body.classList.add(this.theme);
+            document.documentElement.setAttribute('data-theme', this.theme);
+          }
+          
+          setupListeners() {
+            const toggleBtn = document.getElementById('theme-toggle');
+            if (toggleBtn) {
+              toggleBtn.addEventListener('click', () => this.toggleTheme());
+            }
+          }
+          
+          toggleTheme() {
+            const newTheme = this.theme === 'light' ? 'dark' : 'light';
+            document.body.classList.replace(this.theme, newTheme);
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            this.theme = newTheme;
+          }
+        }
+        
+        // Initialize theme toggle
+        new ThemeToggle();
+        \`\`\`
+        EOF
+        elif [[ "$TYPE" == "quote" ]]; then
+          cat > content/daily_inspiration_$DATE.md << EOF
+        # Daily Inspiration - $DATE
+        
+        > "Clean code always looks like it was written by someone who cares." - Robert C. Martin
+        
+        ## Today's Focus
+        
+        1. Write maintainable code
+        2. Learn something new
+        3. Help a fellow developer
+        
+        ## Weekly Goals
+        
+        - [ ] Refactor that problematic module
+        - [ ] Complete the current sprint tasks
+        - [ ] Research new technologies
+        - [ ] Update documentation
+        - [ ] Share knowledge with the team
+        EOF
+        elif [[ "$TYPE" == "stats" ]]; then
+          cat > content/repo_stats_$DATE.md << EOF
+        # Repository Statistics - $DATE
+        
+        ## Summary
+        
+        - Files: $(git ls-files | wc -l)
+        - Commits: $(git rev-list --count HEAD)
+        - Contributors: $(git log --format='%aN' | sort -u | wc -l)
+        - Last updated: $(git log -1 --format=%cd)
+        
+        ## Activity
+        
+        Recent commits:
+        
+        $(git log -5 --pretty=format:"- %s (%ar)" | sed 's/^/    /')
+        
+        ## File Types
+        
+        $(git ls-files | grep -o '\.[^./]*$' | sort | uniq -c | sort -nr | head -n 10 | awk '{printf "- %s: %s files\\n", \$2, \$1}')
+        EOF
+        fi
+    
+    - name: Commit and push changes
       run: |
-        LOG_FILE="${{ steps.content_generator.outputs.LOG_FILE_GENERATED }}"
-        USER_COMMIT_MSG="${{ github.event.inputs.commit_message }}"
-        
-        # Determine commit message
-        if [[ -n "$USER_COMMIT_MSG" && "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-          COMMIT_MSG="$USER_COMMIT_MSG"
-        else
-          COMMIT_MSG="Daily Update ($LOG_FILE) - $(date '+%Y-%m-%d')"
-        fi
-        
-        echo "Committing with message: '$COMMIT_MSG'"
-        git commit -m "$COMMIT_MSG"
-        
-        echo "Pushing changes to origin..."
-        git push origin HEAD # Push the current HEAD
-        echo "Changes pushed successfully."
-
-    - name: Final Status Report
-      if: always() # This step will run regardless of previous step success or failure
-      run: |
-        if [[ "${{ github.job_status }}" == "success" ]]; then
-          echo "✅ Workflow completed successfully!"
-        else
-          echo "❌ Workflow failed at some point."
-          # You could add more detailed error reporting here if needed
-        fi
+        git add content/
+        git commit -m "Daily update: $(date +'%Y-%m-%d')" || echo "No changes to commit"
+        git push origin || (git pull --rebase && git push origin)
